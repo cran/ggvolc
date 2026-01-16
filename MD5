@@ -1,0 +1,15 @@
+dd788cf00b00f714b005c855861bc1ca *DESCRIPTION
+db11113ef87df0ee98548467a7ff303c *LICENSE
+de90206c032d8c156990ee739e25bcf4 *NAMESPACE
+38bddaae7e60e9517e70d108792e5009 *NEWS.md
+f65991e84be941b6d7e85c2e8f926c18 *R/datasets.R
+ea1eb4cd10d50dec1f3930681e7b7479 *R/gene_table.R
+ff9d4f815f2249d369108ae6db3b1d61 *R/ggvolc.R
+f7444609ab58abea0490d20e383030c2 *R/zzz.R
+6d3c2dd10503cfdec4356defb747d219 *data/all_genes.RData
+e5cb6c53776e0ff6b644d069bee41c3e *data/attention_genes.RData
+18681dd50a9c0ddd0cf171880b8c5238 *man/all_genes.Rd
+bd6f948f8214ad5bade8a06bc1884d19 *man/attention_genes.Rd
+8cdba557972019e956054c42d99331a0 *man/genes_table.Rd
+3c3b8d6fa13efa27a5540e4dcc383109 *man/ggvolc-onAttach.Rd
+03e2eb4005a1d6075a5f8d1bbc3b89d7 *man/ggvolc.Rd
