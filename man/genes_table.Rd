@@ -2,34 +2,88 @@
 % Please edit documentation in R/gene_table.R
 \name{genes_table}
 \alias{genes_table}
-\title{Combine a ggplot Object with a Table of Genes}
+\title{Combine a Volcano Plot with a gt Table of Genes}
 \usage{
-genes_table(plot_obj, data2)
+genes_table(
+  plot_obj,
+  data2,
+  top_n = NULL,
+  sig_col = c("padj", "pvalue"),
+  dir = c("both", "up", "down", "each"),
+  p_value = 0.05,
+  table_height = NULL,
+  palette = NULL,
+  coef = NULL
+)
 }
 \arguments{
-\item{plot_obj}{A ggplot object, typically the output of a plotting function.}
+\item{plot_obj}{A ggplot object, typically the output of \code{\link{ggvolc}}.}
 
-\item{data2}{A data frame containing gene details. It should have columns named
-"genes", "baseMean", "log2FoldChange", "pvalue", and "padj".}
+\item{data2}{Gene details: a data frame, or a DESeq2 / edgeR / limma
+result object (see \code{\link{de_table}}).
+Columns are auto-detected in the same way as \code{\link{ggvolc}} (DESeq2,
+edgeR, or limma conventions). Required columns after mapping:
+\code{genes}, \code{log2FoldChange}, \code{pvalue}.
+Optional: \code{baseMean}, \code{padj}.
+When \code{top_n} is supplied you can pass the full DE table here (e.g.
+\code{all_genes}) and the most significant genes are selected automatically.}
+
+\item{top_n}{Optional integer. When supplied, the \code{top_n} most
+significant genes (smallest \code{sig_col}, among genes with
+\code{sig_col < p_value}) are selected from \code{data2} for the table.
+When \code{NULL} (default) every row of \code{data2} is shown, so passing a
+pre-filtered set such as \code{attention_genes} behaves as before.}
+
+\item{sig_col}{Column used to rank significance when \code{top_n} is set.
+Either \code{"padj"} (adjusted p-value / FDR, the default) or
+\code{"pvalue"}. Falls back to \code{"pvalue"} when \code{"padj"} is the
+default but no adjusted-p column is present.}
+
+\item{dir}{Direction to draw the \code{top_n} genes from. One of
+\code{"both"} (top N over all significant genes, the default),
+\code{"up"} (top N upregulated), \code{"down"} (top N downregulated), or
+\code{"each"} (top N up \emph{and} top N down, up to \code{2 * top_n} rows).
+Ignored when \code{top_n} is \code{NULL}.}
+
+\item{p_value}{Significance threshold used for color-coding the p-value
+column, and for filtering eligible genes when \code{top_n} is set.
+Default is 0.05.}
+
+\item{table_height}{Optional relative height of the table panel (the plot
+panel is 3). By default (\code{NULL}) the table takes exactly the height
+its rows need and the plot fills the rest.}
+
+\item{palette}{Colors for the log2FC column. Default NULL takes the colors
+of \code{plot_obj} when it came from \code{\link{ggvolc}}; otherwise a
+preset name or named vector as in \code{\link{ggvolc}}.}
+
+\item{coef}{Coefficient to extract when \code{data2} is a multi-coefficient
+limma fit (see \code{\link{de_table}}).}
 }
 \value{
-A gtable object showing the ggplot stacked above a table of gene details.
+A \code{patchwork} object that can be further composed or saved with
+  \code{ggplot2::ggsave()}.
 }
 \description{
-This function takes a ggplot object and a data frame of gene details and
-produces a combined plot where the ggplot object is stacked above a table of
-gene details.
+Takes a ggplot object (typically from \code{\link{ggvolc}}) and a data frame
+of gene details and produces a combined layout using \pkg{patchwork}.
+The gene table is rendered as a polished \pkg{gt} table with color-coded
+significance and formatted numeric columns.
 }
 \examples{
 # Load example datasets
 data(all_genes)
 data(attention_genes)
 
-# Create a volcano plot highlighting genes of interest
-plot <- ggvolc(all_genes, attention_genes, add_seg = TRUE)
+# Create a volcano plot and combine it with a gt gene table
+p <- ggvolc(all_genes, attention_genes, add_seg = TRUE)
+genes_table(p, attention_genes)
 
-# Combine the plot with a table showing gene statistics
-# The table includes: gene names, baseMean, log2FoldChange, pvalue, and padj
-genes_table(plot, attention_genes)
+# Auto-select the 10 most significant genes from the full table
+p2 <- ggvolc(all_genes, label_top = 10)
+genes_table(p2, all_genes, top_n = 10)
+
+# Top 8 of each direction (up to 16 rows)
+genes_table(p2, all_genes, top_n = 8, dir = "each")
 
 }

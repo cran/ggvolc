@@ -1,26 +1,37 @@
 Package: ggvolc
 Type: Package
 Title: Create Volcano Plots for Differential Gene Expression Data
-Version: 0.1.0
+Version: 0.4.0
 Authors@R: person("Loukas", "Theodosiou",
     email = "theodosiou@evolbio.mpg.de",
     role = c("aut", "cre"),
     comment = c(ORCID = "0000-0001-6418-4652"))
-Description: Provides functionality to create customizable volcano plots for
-    visualizing differential gene expression analysis results. The package
-    offers options to highlight genes of interest, adjust significance
-    thresholds, customize colors, and add informative labels. Designed
-    specifically for RNA-seq data analysis workflows.
+Description: Creates customizable volcano plots for differential gene
+    expression results from RNA-seq analyses. Accepts result objects or tables
+    from 'DESeq2', 'edgeR', and 'limma' directly, with automatic column
+    detection. Labels the most significant or chosen genes, colors gene sets,
+    compares several contrasts side by side, offers colorblind-safe color
+    presets, and can produce interactive plots with 'ggiraph'. Gene tables are
+    rendered with 'gt' and composed with 'patchwork'.
 License: MIT + file LICENSE
+URL: https://loukesio.github.io/ggvolc/,
+        https://github.com/loukesio/ggvolc
+BugReports: https://github.com/loukesio/ggvolc/issues
 Encoding: UTF-8
 LazyData: true
-Imports: dplyr, ggplot2, ggrepel, ggtext, gridExtra, grid
+Imports: dplyr, ggplot2, ggrepel, ggtext, gt, patchwork, grid,
+        grDevices, methods, stats
 RoxygenNote: 7.3.3
-Depends: R (>= 3.5.0)
+Suggests: testthat (>= 3.0.0), ggiraph, DESeq2, edgeR, limma, knitr,
+        rmarkdown
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+Config/Needs/website: pkgdown
+Depends: R (>= 4.1.0)
 NeedsCompilation: no
-Packaged: 2026-01-11 12:24:09 UTC; theodosiou
+Packaged: 2026-10-31 21:51:32 UTC; theodosiou
 Author: Loukas Theodosiou [aut, cre] (ORCID:
     <https://orcid.org/0000-0001-6418-4652>)
 Maintainer: Loukas Theodosiou <theodosiou@evolbio.mpg.de>
 Repository: CRAN
-Date/Publication: 2026-01-16 11:00:08 UTC
+Date/Publication: 2026-11-01 08:20:02 UTC

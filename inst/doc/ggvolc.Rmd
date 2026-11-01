@@ -1,0 +1,239 @@
+---
+title: "Getting started with ggvolc"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with ggvolc}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 5,
+  out.width = "100%",
+  dpi = 72,
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+`ggvolc` turns the output of a differential-expression (DE) analysis into a
+polished, publication-ready volcano plot. It accepts the output of **DESeq2**,
+**edgeR**, and **limma** directly, highlights and labels genes of interest,
+combines the plot with a `gt` table, and can render an interactive version with
+`ggiraph`.
+
+```{r}
+library(ggvolc)
+```
+
+## The example data
+
+The package ships with two data frames. `all_genes` is a complete DESeq2-style
+result table; `attention_genes` is a small subset of genes you might want to
+highlight.
+
+```{r}
+data(all_genes)
+data(attention_genes)
+
+head(all_genes)
+```
+
+## A basic volcano plot
+
+Passing a single data frame colours every gene by significance. By default a
+gene is called significant when its **adjusted** p-value (FDR) is below `0.05`
+and its `|log2FoldChange|` exceeds `1`.
+
+```{r}
+ggvolc(all_genes)
+```
+
+## Highlighting genes of interest
+
+Supply a second data frame and those genes are drawn with a black outline and
+labelled.
+
+```{r}
+ggvolc(all_genes, attention_genes, add_seg = TRUE)
+```
+
+The `add_seg = TRUE` argument adds dashed guides at the fold-change and
+significance thresholds.
+
+## Labelling the top genes automatically
+
+You usually do not want to build a separate data frame just to label a handful
+of hits. `label_top` picks the most significant genes for you, and `label_dir`
+controls the direction they are drawn from.
+
+```{r}
+# the 10 most significant genes overall
+ggvolc(all_genes, label_top = 10, add_seg = TRUE, title = "Top 10 hits")
+```
+
+```{r}
+# the top 8 up- and top 8 down-regulated genes
+ggvolc(all_genes, label_top = 8, label_dir = "each",
+       add_seg = TRUE, title = "Top 8 up + 8 down")
+```
+
+`label_dir` accepts `"both"` (the default), `"up"`, `"down"`, and `"each"`.
+
+## Calling significance on the FDR (or the raw p-value)
+
+`ggvolc()` calls significance on the adjusted p-value (`padj`) by default, which
+is the right cutoff for most DE workflows. The y-axis and the significance line
+follow the choice, so the plot stays internally consistent. Switch to the raw
+p-value with `sig_col = "pvalue"`.
+
+```{r}
+ggvolc(all_genes, sig_col = "pvalue", add_seg = TRUE,
+       title = "Significance on the raw p-value")
+```
+
+`ggvolc()` is also robust to p-values of exactly `0` (which DESeq2 and edgeR can
+emit for the strongest genes): rather than dropping those points, their
+`-log10` value is capped so they stay near the top of the plot.
+
+## Scaling point size
+
+Point size can encode either the fold change or the significance.
+
+```{r}
+ggvolc(all_genes, attention_genes, size_var = "log2FoldChange", add_seg = TRUE)
+```
+
+## Adding a gene table
+
+`genes_table()` composes the volcano plot with a `gt` table of the highlighted
+genes using `patchwork`. The result is a single object you can save with
+`ggplot2::ggsave()`.
+
+```{r, fig.height = 7}
+p <- ggvolc(all_genes, attention_genes, add_seg = TRUE)
+genes_table(p, attention_genes)
+```
+
+To tabulate the most significant genes without curating them yourself, pass the
+full DE table and a `top_n`. Genes are ranked by `sig_col` (`padj` by default,
+falling back to `pvalue`); `dir = "each"` takes the top N up- and
+down-regulated genes.
+
+```{r, fig.height = 7}
+p_top <- ggvolc(all_genes, label_top = 10, add_seg = TRUE)
+genes_table(p_top, all_genes, top_n = 10)
+```
+
+## Works with DESeq2, edgeR, and limma
+
+Column names from all three pipelines are detected and mapped automatically, so
+you can pass their output straight in. Gene identifiers held in the row names
+(as edgeR and limma often do) are promoted to a `genes` column for you.
+
+The package ships `edger_genes`, an example `topTags()`-style table with the gene
+identifiers in the row names, so you can try this right away:
+
+```{r}
+data(edger_genes)
+head(edger_genes, 3)
+
+ggvolc(edger_genes, label_top = 8, add_seg = TRUE, title = "edgeR input")
+```
+
+| Pipeline | Fold change | p-value | adjusted p | expression |
+|----------|-------------|---------|------------|------------|
+| DESeq2 (`results()`) | `log2FoldChange` | `pvalue` | `padj` | `baseMean` |
+| edgeR (`topTags()`) | `logFC` | `PValue` | `FDR` | `logCPM` |
+| limma (`topTable()`) | `logFC` | `P.Value` | `adj.P.Val` | `AveExpr` |
+
+You can also skip the conversion and pass the result objects directly:
+`DESeqResults` or `DESeqDataSet` (DESeq2), `TopTags`, `DGELRT` or `DGEExact`
+(edgeR), and `MArrayLM` (limma, choose the coefficient with `coef`).
+
+```r
+ggvolc(DESeq2::results(dds))
+ggvolc(edgeR::glmQLFTest(fit, coef = 2))
+ggvolc(limma::eBayes(fit), coef = "treatment")
+```
+
+`de_table()` performs the same conversion if you want the data frame itself.
+
+## Colors and colorblind-safe palettes
+
+`palette` selects a color preset. `ggvolc_palettes()` lists them, including
+colorblind-safe options and presets from the ltc palettes.
+
+```{r}
+ggvolc_palettes()
+
+ggvolc(all_genes, label_top = 8, label_dir = "each", palette = "okabe_ito")
+```
+
+`genes_table()` reuses the plot's colors, darkening light ones so the table
+text stays readable.
+
+## Counts, gene sets, and several contrasts
+
+```{r}
+# number of up- and downregulated genes in the corners
+ggvolc(all_genes, show_counts = TRUE)
+
+# color named gene sets
+ribosomal  <- grep("^RP[LS][0-9]", all_genes$genes, value = TRUE)
+heat_shock <- grep("^HSP[0-9]|^SSA[0-9]", all_genes$genes, value = TRUE)
+ggvolc(all_genes, highlight = list(Ribosomal = ribosomal, `Heat shock` = heat_shock))
+```
+
+To compare contrasts, pass a named list of results. `stress_timecourse` holds
+real DESeq2 results from a fission yeast stress time course (Leong et al. 2014):
+
+```{r, fig.width = 10, fig.height = 4.5}
+ggvolc(stress_timecourse, label_top = 5, show_counts = TRUE)
+```
+
+`flip = TRUE` puts the fold change on the y-axis instead, which lines it up
+across the panels:
+
+```{r, fig.width = 10, fig.height = 4.5}
+ggvolc(stress_timecourse, label_top = 5, show_counts = TRUE, flip = TRUE)
+```
+
+Each panel compares one time point with 0 minutes. The x-axis (fold change) is
+shared; each panel uses its own y-axis height, and `facet_scales = "fixed"`
+shares that too.
+
+A named vector sets the colors directly, and `up_reg_color`,
+`down_reg_color` and `not_sig_color` still override single colors:
+
+```{r}
+ggvolc(all_genes, palette = c(down = "navy", up = "firebrick"))
+```
+
+## An interactive volcano
+
+With the optional [`ggiraph`](https://davidgohel.github.io/ggiraph/) package
+installed, `interactive = TRUE` returns a widget where hovering a point reveals
+the gene name and its statistics.
+
+```{r, include = FALSE}
+# The live widget embeds every point plus its JavaScript, which makes the
+# vignette far too large for CRAN; it is rendered on the package website only.
+live_widget <- identical(Sys.getenv("IN_PKGDOWN"), "true") &&
+  requireNamespace("ggiraph", quietly = TRUE)
+```
+
+```{r, eval = live_widget}
+ggvolc(all_genes, attention_genes, interactive = TRUE)
+```
+
+```{r, eval = !live_widget, echo = FALSE, results = "asis"}
+cat("```r\nggvolc(all_genes, attention_genes, interactive = TRUE)\n```\n\n",
+    "_See the live, hover-to-inspect version on the ",
+    "[package website](https://loukesio.github.io/ggvolc/articles/ggvolc.html)._",
+    sep = "")
+```

@@ -1,14 +1,47 @@
-#' Combine a ggplot Object with a Table of Genes
+#' Combine a Volcano Plot with a gt Table of Genes
 #'
-#' This function takes a ggplot object and a data frame of gene details and
-#' produces a combined plot where the ggplot object is stacked above a table of
-#' gene details.
+#' Takes a ggplot object (typically from \code{\link{ggvolc}}) and a data frame
+#' of gene details and produces a combined layout using \pkg{patchwork}.
+#' The gene table is rendered as a polished \pkg{gt} table with color-coded
+#' significance and formatted numeric columns.
 #'
-#' @param plot_obj A ggplot object, typically the output of a plotting function.
-#' @param data2 A data frame containing gene details. It should have columns named
-#'   "genes", "baseMean", "log2FoldChange", "pvalue", and "padj".
+#' @param plot_obj A ggplot object, typically the output of \code{\link{ggvolc}}.
+#' @param data2 Gene details: a data frame, or a DESeq2 / edgeR / limma
+#'   result object (see \code{\link{de_table}}).
+#'   Columns are auto-detected in the same way as \code{\link{ggvolc}} (DESeq2,
+#'   edgeR, or limma conventions). Required columns after mapping:
+#'   \code{genes}, \code{log2FoldChange}, \code{pvalue}.
+#'   Optional: \code{baseMean}, \code{padj}.
+#'   When \code{top_n} is supplied you can pass the full DE table here (e.g.
+#'   \code{all_genes}) and the most significant genes are selected automatically.
+#' @param top_n Optional integer. When supplied, the \code{top_n} most
+#'   significant genes (smallest \code{sig_col}, among genes with
+#'   \code{sig_col < p_value}) are selected from \code{data2} for the table.
+#'   When \code{NULL} (default) every row of \code{data2} is shown, so passing a
+#'   pre-filtered set such as \code{attention_genes} behaves as before.
+#' @param sig_col Column used to rank significance when \code{top_n} is set.
+#'   Either \code{"padj"} (adjusted p-value / FDR, the default) or
+#'   \code{"pvalue"}. Falls back to \code{"pvalue"} when \code{"padj"} is the
+#'   default but no adjusted-p column is present.
+#' @param dir Direction to draw the \code{top_n} genes from. One of
+#'   \code{"both"} (top N over all significant genes, the default),
+#'   \code{"up"} (top N upregulated), \code{"down"} (top N downregulated), or
+#'   \code{"each"} (top N up \emph{and} top N down, up to \code{2 * top_n} rows).
+#'   Ignored when \code{top_n} is \code{NULL}.
+#' @param p_value Significance threshold used for color-coding the p-value
+#'   column, and for filtering eligible genes when \code{top_n} is set.
+#'   Default is 0.05.
+#' @param table_height Optional relative height of the table panel (the plot
+#'   panel is 3). By default (\code{NULL}) the table takes exactly the height
+#'   its rows need and the plot fills the rest.
+#' @param palette Colors for the log2FC column. Default NULL takes the colors
+#'   of \code{plot_obj} when it came from \code{\link{ggvolc}}; otherwise a
+#'   preset name or named vector as in \code{\link{ggvolc}}.
+#' @param coef Coefficient to extract when \code{data2} is a multi-coefficient
+#'   limma fit (see \code{\link{de_table}}).
 #'
-#' @return A gtable object showing the ggplot stacked above a table of gene details.
+#' @return A \code{patchwork} object that can be further composed or saved with
+#'   \code{ggplot2::ggsave()}.
 #' @export
 #'
 #' @examples
@@ -16,35 +49,178 @@
 #' data(all_genes)
 #' data(attention_genes)
 #'
-#' # Create a volcano plot highlighting genes of interest
-#' plot <- ggvolc(all_genes, attention_genes, add_seg = TRUE)
+#' # Create a volcano plot and combine it with a gt gene table
+#' p <- ggvolc(all_genes, attention_genes, add_seg = TRUE)
+#' genes_table(p, attention_genes)
 #'
-#' # Combine the plot with a table showing gene statistics
-#' # The table includes: gene names, baseMean, log2FoldChange, pvalue, and padj
-#' genes_table(plot, attention_genes)
+#' # Auto-select the 10 most significant genes from the full table
+#' p2 <- ggvolc(all_genes, label_top = 10)
+#' genes_table(p2, all_genes, top_n = 10)
 #'
-genes_table <- function(plot_obj, data2) {
-  # Check if the provided object is a ggplot
-  if (!inherits(plot_obj, "gg")) stop("Input must be a ggplot object")
+#' # Top 8 of each direction (up to 16 rows)
+#' genes_table(p2, all_genes, top_n = 8, dir = "each")
+#'
+genes_table <- function(plot_obj, data2,
+                        top_n        = NULL,
+                        sig_col      = c("padj", "pvalue"),
+                        dir          = c("both", "up", "down", "each"),
+                        p_value      = 0.05,
+                        table_height = NULL,
+                        palette      = NULL,
+                        coef         = NULL) {
 
-  # Select specific columns
-  selected_data <- data2[, c("genes", "baseMean", "log2FoldChange", "pvalue", "padj"), drop = FALSE]
+  sig_col_explicit <- !missing(sig_col)
+  sig_col <- match.arg(sig_col)
+  dir     <- match.arg(dir)
 
-  # Define a custom theme for the table
-  custom_theme <- gridExtra::ttheme_default(
-    core = list(bg_params = list(fill = "white")),
-    colhead = list(
-      fg_params = list(col = "black"),
-      bg_params = list(fill = "white", col = "#333333", lwd = 1)
+  # Check input
+  if (!inherits(plot_obj, "gg")) stop("plot_obj must be a ggplot object", call. = FALSE)
+  data2 <- de_table(data2, coef = coef)
+  if (!is.null(top_n) &&
+      (!is.numeric(top_n) || length(top_n) != 1 || top_n < 1)) {
+    stop("top_n must be a single positive number", call. = FALSE)
+  }
+
+  # Standardize columns (so edgeR / limma tables work too)
+  data2 <- standardize_de_columns(data2)
+
+  # Auto-select the most significant genes when top_n is requested
+  if (!is.null(top_n)) {
+    # Default is padj (FDR); fall back to the raw p-value when there is no
+    # adjusted-p column and the user did not explicitly ask for padj.
+    if (sig_col == "padj" && !"padj" %in% colnames(data2) && !sig_col_explicit) {
+      message("genes_table: no adjusted p-value (padj) column found; ",
+              "using sig_col = 'pvalue' instead.")
+      sig_col <- "pvalue"
+    }
+    data2 <- select_top_genes(data2, top_n = top_n, sig_col = sig_col,
+                              dir = dir, p_value = p_value)
+    if (nrow(data2) == 0) {
+      warning("genes_table: no genes passed the significance threshold; ",
+              "returning the plot without a table.", call. = FALSE)
+      return(plot_obj)
+    }
+  }
+
+  # Select columns that exist
+  show_cols <- c("genes", "baseMean", "log2FoldChange", "pvalue", "padj")
+  show_cols <- intersect(show_cols, colnames(data2))
+  selected_data <- data2[, show_cols, drop = FALSE]
+
+  # Build gt table
+  tbl <- gt::gt(selected_data) |>
+    gt::cols_label(
+      genes           = "Gene",
+      log2FoldChange  = "log2FC",
+      pvalue          = "p-value"
+    ) |>
+    gt::fmt_number(
+      columns  = "log2FoldChange",
+      decimals = 2
+    ) |>
+    gt::fmt_scientific(
+      columns   = "pvalue",
+      decimals  = 2,
+      exp_style = "e"   # grid-safe: patchwork renders the table as a graphic,
+                        # where gt's superscript x10^n markup is not interpreted
+    ) |>
+    gt::tab_style(
+      style     = gt::cell_text(weight = "bold"),
+      locations = gt::cells_column_labels()
+    ) |>
+    gt::tab_options(
+      table.font.size   = "14px",
+      data_row.padding   = gt::px(5),
+      column_labels.padding = gt::px(6),
+      table.border.top.style    = "solid",
+      table.border.bottom.style = "solid"
     )
-  )
 
-  # Create the tableGrob with the custom theme
-  attention.genes.tbl <- gridExtra::tableGrob(selected_data, rows = NULL, theme = custom_theme)
+  # Conditional formatting for optional columns
+  if ("baseMean" %in% show_cols) {
+    tbl <- tbl |>
+      gt::cols_label(baseMean = "baseMean") |>
+      gt::fmt_number(columns = "baseMean", decimals = 1)
+  }
 
-  # Combine plot and table using grid.arrange
-  combined_plot <- gridExtra::grid.arrange(plot_obj, attention.genes.tbl,
-                                           ncol = 1,
-                                           heights = c(3, 1))
-  return(combined_plot)
+  if ("padj" %in% show_cols) {
+    tbl <- tbl |>
+      gt::cols_label(padj = "p-adj") |>
+      gt::fmt_scientific(columns = "padj", decimals = 2, exp_style = "e") |>
+      gt::tab_style(
+        style     = gt::cell_fill(color = "#fce4ec"),
+        locations = gt::cells_body(
+          columns = "padj",
+          rows    = selected_data$padj < p_value
+        )
+      )
+  }
+
+  # Color-code p-value cells
+  tbl <- tbl |>
+    gt::tab_style(
+      style     = gt::cell_fill(color = "#fce4ec"),
+      locations = gt::cells_body(
+        columns = "pvalue",
+        rows    = selected_data$pvalue < p_value
+      )
+    )
+
+  # Highlight direction via log2FC color, matching the plot's palette
+  cols <- if (!is.null(palette)) resolve_palette(palette)
+          else if (!is.null(attr(plot_obj, "ggvolc_colors"))) attr(plot_obj, "ggvolc_colors")
+          else resolve_palette("default")
+  if (nrow(selected_data) > 0) {
+    up_rows   <- which(selected_data$log2FoldChange > 0)
+    down_rows <- which(selected_data$log2FoldChange < 0)
+
+    if (length(up_rows) > 0) {
+      tbl <- tbl |>
+        gt::tab_style(
+          style     = gt::cell_text(color = readable_on_white(cols[["up"]])),
+          locations = gt::cells_body(columns = "log2FoldChange", rows = up_rows)
+        )
+    }
+    if (length(down_rows) > 0) {
+      tbl <- tbl |>
+        gt::tab_style(
+          style     = gt::cell_text(color = readable_on_white(cols[["down"]])),
+          locations = gt::cells_body(columns = "log2FoldChange", rows = down_rows)
+        )
+    }
+  }
+
+  # Compose with patchwork
+  # Render the table as a grid object whose columns stretch to share the
+  # width of the plot panel (gt's own percentage widths are not honoured once
+  # composed by patchwork), placed in the panel area so its edges line up
+  # with the plot's axes, and only as tall as its rows need.
+  gtab <- stretch_gtable(gt::as_gtable(tbl))
+  heights <- if (is.null(table_height)) {
+    grid::unit(c(1, grid::convertHeight(sum(gtab$heights), "cm", valueOnly = TRUE)),
+               c("null", "cm"))
+  } else {
+    c(3, table_height)
+  }
+  combined <- plot_obj +
+    patchwork::wrap_elements(panel = gtab) +
+    patchwork::plot_layout(ncol = 1, heights = heights)
+
+  combined
+}
+
+
+#' Let a gt gtable fill the width it is drawn in
+#'
+#' \code{gt::as_gtable()} centres the table between two flexible padding
+#' columns. This gives the table columns equal flexible widths instead and
+#' drops the padding, so the table spans the full width of its viewport.
+#' @keywords internal
+#' @noRd
+stretch_gtable <- function(gtab) {
+  n <- length(gtab$widths)
+  if (n < 3) return(gtab)
+  gtab$widths[2:(n - 1)] <- grid::unit(1, "null")
+  gtab$widths[c(1, n)]   <- grid::unit(0, "pt")
+  gtab
 }
